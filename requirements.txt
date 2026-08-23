@@ -1,0 +1,4 @@
+anthropic
+psycopg[binary]
+python-dotenv
+fastmcp
