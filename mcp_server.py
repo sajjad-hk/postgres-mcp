@@ -1,6 +1,7 @@
 """
 Remote MCP server exposing read-only database query tools to Claude (or
-any MCP-compatible client).
+any MCP-compatible client), plus an optional run_write_sql tool that is
+only registered when WRITE_DATABASE_URL is set (see db_tools.py).
 
 Recommended: deploy via Prefect Horizon (or its current name — check
 gofastmcp.com/deployment, this platform has rebranded before). It gives
@@ -31,9 +32,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from fastmcp import FastMCP
 
 from db_tools import (
+    WRITE_DATABASE_URL,
     list_tables as _list_tables,
     describe_table as _describe_table,
     run_sql as _run_sql,
+    run_write_sql as _run_write_sql,
 )
 
 mcp = FastMCP("postgres-mcp")
@@ -61,6 +64,22 @@ def run_sql(query: str) -> list[dict]:
     a list of dicts, capped at 200 rows. Any other statement type is
     rejected — this connection can only ever read."""
     return _run_sql(query)
+
+
+# Registered only when a write connection is configured, so a read-only
+# deployment never even advertises a write tool.
+if WRITE_DATABASE_URL:
+    @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False})
+    def run_write_sql(query: str) -> dict:
+        """Run ONE SQL statement (INSERT/UPDATE/DELETE, optionally with
+        RETURNING) with the server's scoped write role and commit it.
+        Returns {"rowcount", "rows"}. The role's database grants decide what
+        you may write — use describe_table to see the target table first.
+        A permission-denied error means that table/column is outside the
+        role's grants: don't retry or work around it. If the database
+        documents a workflow for writes (e.g. a planning table that a human
+        approves before anything happens), follow it."""
+        return _run_write_sql(query)
 
 
 if __name__ == "__main__":

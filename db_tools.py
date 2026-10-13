@@ -1,7 +1,7 @@
 """
-Read-only query tools for your database. These are the functions exposed
-to Claude via tool-calling — see TOOL_DEFINITIONS at the bottom for the
-JSON schema the API needs.
+Query tools for your database. These are the functions exposed to Claude
+via tool-calling — see TOOL_DEFINITIONS at the bottom for the JSON schema
+the API needs.
 
 Security model (defense in depth, two independent layers):
   1. DB-level: connects as a read-only Postgres role that only has SELECT
@@ -13,6 +13,13 @@ Security model (defense in depth, two independent layers):
 Use a dedicated read-only DATABASE_URL here — don't reuse a write-capable
 connection string from elsewhere, so nothing an LLM's queries touch ever
 has write access.
+
+Optional write tool (run_write_sql): only when WRITE_DATABASE_URL is set.
+It uses a SEPARATE connection as a role YOU scope with GRANTs (e.g. one
+that may write a planning table but can't read secrets). There is
+deliberately no keyword filtering — that role's grants are the only fence,
+so never point WRITE_DATABASE_URL at an owner/admin connection. It is not
+in TOOL_DEFINITIONS, so chat.py stays read-only.
 """
 
 import os
@@ -24,6 +31,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+WRITE_DATABASE_URL = os.environ.get("WRITE_DATABASE_URL")
 
 MAX_ROWS = 200
 STATEMENT_TIMEOUT_MS = 5000
@@ -111,6 +119,24 @@ def run_sql(query: str) -> list[dict]:
         cols = [d.name for d in cur.description]
         rows = cur.fetchmany(MAX_ROWS)
         return [dict(zip(cols, r)) for r in rows]
+
+
+def run_write_sql(query: str) -> dict:
+    """Execute ONE SQL statement on the WRITE_DATABASE_URL connection and
+    commit. No keyword filtering on purpose: the write role's GRANTs are the
+    fence. Returns {"rowcount", "rows"} (rows only for RETURNING / SELECT,
+    capped at MAX_ROWS)."""
+    if not WRITE_DATABASE_URL:
+        raise RuntimeError("WRITE_DATABASE_URL is not set — this server is read-only.")
+    with psycopg.connect(WRITE_DATABASE_URL) as conn:
+        conn.execute(f"set statement_timeout = '{STATEMENT_TIMEOUT_MS}ms'")
+        cur = conn.execute(query)
+        rows = []
+        if cur.description is not None:
+            cols = [d.name for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchmany(MAX_ROWS)]
+        conn.commit()
+        return {"rowcount": cur.rowcount, "rows": rows}
 
 
 TOOL_DEFINITIONS = [
