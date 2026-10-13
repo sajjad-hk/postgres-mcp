@@ -37,6 +37,27 @@ Two independent layers, defense in depth:
    pip install -r requirements.txt
    ```
 
+## Optional: a scoped write tool
+
+By default the server is read-only. If you also set
+`WRITE_DATABASE_URL`, it registers one more tool, `run_write_sql`, that
+runs a single statement on that **separate** connection and commits it.
+
+- The write connection must use a role **you** scope with GRANTs — e.g.
+  allowed to write a planning table, but with no access to secrets or
+  approval tables. There's no keyword filtering on purpose: the role's
+  grants are the only fence. **Never** point it at an owner/admin URL.
+- Unset → the tool isn't registered at all, so a read-only deployment
+  never advertises a write tool. `chat.py` never gets it either.
+- Example: [own-my-garmin-data](https://github.com/sajjad-hk/own-my-garmin-data)'s
+  optional coach loop creates a `coach` role for exactly this
+  (`uv run install.py --coach-loop` writes its URL to that repo's `.env`
+  as `COACH_DATABASE_URL`); set that value as `WRITE_DATABASE_URL` here.
+
+On the hosted platform, add `WRITE_DATABASE_URL` next to `DATABASE_URL`
+in the dashboard's environment variables, redeploy, then use "Refresh
+tools" in the connector settings so the new tool shows up.
+
 ## Local testing
 
 Test the query layer directly first, without any MCP client in the loop:
