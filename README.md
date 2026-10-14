@@ -37,6 +37,19 @@ Two independent layers, defense in depth:
    pip install -r requirements.txt
    ```
 
+## Documenting tables for Claude
+
+`list_tables` and `describe_table` also return each table's and column's
+Postgres `COMMENT`, and the server tells the client to read and follow
+them. That's how a database explains itself without any schema-specific
+code here — e.g. "this is the planning table, insert rows here" or "this is
+a read-only mirror, never write here":
+
+```sql
+comment on table my_table is 'What this table is for and how to use it.';
+comment on column my_table.my_col is 'What this column means.';
+```
+
 ## Optional: a scoped write tool
 
 By default the server is read-only. If you also set

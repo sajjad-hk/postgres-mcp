@@ -39,20 +39,37 @@ from db_tools import (
     run_write_sql as _run_write_sql,
 )
 
-mcp = FastMCP("postgres-mcp")
+mcp = FastMCP(
+    "postgres-mcp",
+    instructions=(
+        "Query a Postgres database. Start with list_tables: tables may carry "
+        "descriptions (Postgres comments) that explain what they're for and how "
+        "to use them — read them and follow any workflow they document. Use "
+        "describe_table for column details before querying."
+        + (
+            " A scoped run_write_sql tool is available: before writing, read the "
+            "target table's description; some tables are the intended way to act "
+            "(e.g. a planning table), others are read-only mirrors."
+            if WRITE_DATABASE_URL else ""
+        )
+    ),
+)
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
 def list_tables() -> list[dict]:
-    """List every table available to query, with row counts. Call this
-    first if you don't already know the schema."""
+    """List every table available to query, with row counts and each
+    table's description (its Postgres comment, if any). Call this first if
+    you don't already know the schema, and follow any usage notes in the
+    descriptions — they're how the database explains its workflow."""
     return _list_tables()
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
 def describe_table(table: str) -> dict:
-    """Column names/types for a table, plus sample jsonb key names for any
-    jsonb columns. If your data is stored as raw jsonb, call this before
+    """Column names/types (with column descriptions, if documented) and
+    the table's description, plus sample jsonb key names for any jsonb
+    columns. If your data is stored as raw jsonb, call this before
     querying a table's jsonb column, since the real field names aren't
     guessable from the column name alone."""
     return _describe_table(table)
@@ -74,7 +91,9 @@ if WRITE_DATABASE_URL:
         """Run ONE SQL statement (INSERT/UPDATE/DELETE, optionally with
         RETURNING) with the server's scoped write role and commit it.
         Returns {"rowcount", "rows"}. The role's database grants decide what
-        you may write — use describe_table to see the target table first.
+        you may write. Before writing, call describe_table on the target
+        table and follow its description: it says which table is the
+        intended write target and how rows are used.
         A permission-denied error means that table/column is outside the
         role's grants: don't retry or work around it. If the database
         documents a workflow for writes (e.g. a planning table that a human
